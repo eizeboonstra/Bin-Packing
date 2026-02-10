@@ -48,7 +48,17 @@ z = {}
 for b in Bins:
     z[b.ID] = model.addVar(obj= b.cost, vtype=gp.GRB.BINARY, name="z_{}".format(b.ID))
 
+I = {}
+for i in Items:
+    for j in Items:
+        if i.ID != j.ID:
+            I[i.ID, j.ID] = model.addVar(vtype=gp.GRB.BINARY, name="I_{}_{}".format(i.ID, j.ID))
 
+b = {}
+for i in Items:
+    for j in Items:
+        if i.ID != j.ID:
+            b[i.ID, j.ID] = model.addVar(vtype=gp.GRB.BINARY, name="b_{}_{}".format(i.ID, j.ID))
 
 p = {}
 for i in Items:
@@ -82,55 +92,32 @@ for i in Items:
     y[i.ID] = model.addVar(lb=0, vtype=gp.GRB.CONTINUOUS, name="y_{}".format(i.ID))
 
 
-def W(item_id):
-    it = Items[item_id]
-    return it.length * (1 - rho[item_id]) + it.height * rho[item_id]
-
-def H(item_id):
-    it = Items[item_id]
-    return it.height * (1 - rho[item_id]) + it.length * rho[item_id]
 
 
-# --- ONLY PAIRS i<j ---
-pair_list = [(i.ID, j.ID) for idx_i, i in enumerate(Items) for j in Items[idx_i+1:]]
+overlapping = {}
+for bin in Bins:
+    for i in Items:
+        for j in Items:
+            if i.ID != j.ID:
+                overlapping[bin.ID, i.ID, j.ID] = model.addConstr(I[i.ID, j.ID] + I[j.ID, i.ID] + b[i.ID, j.ID] + b[j.ID, i.ID] >= p[i.ID, bin.ID] + p[j.ID, bin.ID] - 1, name="overlapping_{}_{}_{}".format(bin.ID, i.ID, j.ID))
 
-# w[i,j,k] = 1 iff i and j are both assigned to bin k
-w = {}
-left = {}
-right = {}
-below = {}
-above = {}
+horizontal1 = {}
+horizontal2 = {}
 
-for (i, j) in pair_list:
-    for bin in Bins:
-        k = bin.ID
-        w[i, j, k] = model.addVar(vtype=gp.GRB.BINARY, name=f"w_{i}_{j}_{k}")
-        left[i, j, k]  = model.addVar(vtype=gp.GRB.BINARY, name=f"L_{i}_{j}_{k}")
-        right[i, j, k] = model.addVar(vtype=gp.GRB.BINARY, name=f"R_{i}_{j}_{k}")
-        below[i, j, k] = model.addVar(vtype=gp.GRB.BINARY, name=f"B_{i}_{j}_{k}")
-        above[i, j, k] = model.addVar(vtype=gp.GRB.BINARY, name=f"A_{i}_{j}_{k}")
+for i in Items:
+    for j in Items:
+        if i.ID != j.ID:
+            horizontal1[i.ID, j.ID] = model.addConstr(x[j.ID] >= x[i.ID] + i.length * (1 - rho[i.ID]) + i.height * rho[i.ID] - Lmax * (1- I[i.ID, j.ID]), name="horizontal1_{}_{}".format(i.ID, j.ID))
+            horizontal2[i.ID, j.ID] = model.addConstr(x[j.ID] + 0.00001 <= x[i.ID] + i.length * (1 - rho[i.ID]) + i.height * rho[i.ID] + Lmax *  I[i.ID, j.ID], name="horizontal2_{}_{}".format(i.ID, j.ID))
 
-        # linearize w = AND(p[i,k], p[j,k])
-        model.addConstr(w[i, j, k] <= p[i, k], name=f"wub1_{i}_{j}_{k}")
-        model.addConstr(w[i, j, k] <= p[j, k], name=f"wub2_{i}_{j}_{k}")
-        model.addConstr(w[i, j, k] >= p[i, k] + p[j, k] - 1, name=f"wlb_{i}_{j}_{k}")
+vertical1 = {}
+vertical2 = {}
+for i in Items:
+    for j in Items:
+        if i.ID != j.ID:
+            vertical1[i.ID, j.ID] = model.addConstr(y[j.ID] >= y[i.ID] + i.height * (1 - rho[i.ID]) + i.length * rho[i.ID] - Hmax * (1- b[i.ID, j.ID]), name="vertical1_{}_{}".format(i.ID, j.ID))
+            vertical2[i.ID, j.ID] = model.addConstr(y[j.ID] <= y[i.ID] + i.height * (1 - rho[i.ID]) + i.length * rho[i.ID] + Hmax *  b[i.ID, j.ID], name="vertical2_{}_{}".format(i.ID, j.ID))
 
-        # exactly one separation mode if in same bin; none if not
-        model.addConstr(left[i, j, k] + right[i, j, k] + below[i, j, k] + above[i, j, k] == w[i, j, k],
-                        name=f"disj_{i}_{j}_{k}")
-
-        # INDICATORS (no big-M)
-        # if left=1 then i is left of j: x_i + W_i <= x_j
-        model.addGenConstrIndicator(left[i, j, k], 1, x[i] + W(i) <= x[j], name=f"indL_{i}_{j}_{k}")
-
-        # if right=1 then j is left of i: x_j + W_j <= x_i
-        model.addGenConstrIndicator(right[i, j, k], 1, x[j] + W(j) <= x[i], name=f"indR_{i}_{j}_{k}")
-
-        # if below=1 then i is below j: y_i + H_i <= y_j
-        model.addGenConstrIndicator(below[i, j, k], 1, y[i] + H(i) <= y[j], name=f"indB_{i}_{j}_{k}")
-
-        # if above=1 then j is below i: y_j + H_j <= y_i
-        model.addGenConstrIndicator(above[i, j, k], 1, y[j] + H(j) <= y[i], name=f"indA_{i}_{j}_{k}")
 xbound = {}
 ybound = {}
 assigned = {}
@@ -139,27 +126,12 @@ for i in Items:
     ybound[i.ID] = model.addConstr(y[i.ID] + i.height * (1 - rho[i.ID]) + i.length * rho[i.ID] <= gp.quicksum(bin.height * p[i.ID, bin.ID] for bin in Bins), name="ybound_{}".format(i.ID))
     assigned[i.ID] = model.addConstr(gp.quicksum(p[i.ID, bin.ID] for bin in Bins) == 1, name="assigned_{}".format(i.ID))
 
-usage = {}
 for bin in Bins:
-    usage[bin.ID] = model.addConstr(gp.quicksum(p[i.ID, bin.ID] for i in Items) <= 1000 * z[bin.ID], name="bin_usage_{}".format(bin.ID))
-model.addConstr(z[0]<=z[1])
-model.addConstr(z[2]<=z[3])
+    model.addConstr(gp.quicksum(p[i.ID, bin.ID] for i in Items) <= 1000 * z[bin.ID], name="bin_usage_{}".format(bin.ID))
 
 grounding = {}
 for i in Items:
-    grounding[i.ID] = model.addConstr(y[i.ID] <= 10000 * (1-g[i.ID]), name="grounding_{}".format(i.ID))
-
-cornerl = {}
-corneru = {}
-gamma_con = {}
-for i in Items:
-    for bin in Bins:
-        if bin.b>0:
-            cornerl[i.ID, bin.ID] = model.addConstr(y[i.ID]>=-bin.b/bin.a * x[i.ID] + bin.b - (1-p[i.ID, bin.ID])*(1000000), name="corner_{}_{}".format(i.ID, bin.ID))
-            corneru[i.ID, bin.ID] = model.addConstr(y[i.ID]<=-bin.b/bin.a * x[i.ID] + bin.b + (2-p[i.ID, bin.ID] - gamma[i.ID])*(1000000), name="corner_{}_{}".format(i.ID, bin.ID))
-        else:
-            gamma_con[i.ID, bin.ID] = model.addConstr(gamma[i.ID] <= 1-p[i.ID, bin.ID], name="gamma_con_{}_{}".format(i.ID, bin.ID))
-
+    grounding[i.ID] = model.addConstr(y[i.ID] <= 1000 * (1-g[i.ID]), name="grounding_{}".format(i.ID))
 
 bcon = {}
 rcon = {}
@@ -178,6 +150,15 @@ for i in Items:
             if i.ID != j.ID:
                 bcon2[i.ID, j.ID, bin.ID] = model.addConstr(-y[i.ID] + (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 1000 * (3 - B1[i.ID, j.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="bcon2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
                 rcon2[i.ID, j.ID, bin.ID] = model.addConstr(-y[i.ID] + (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 1000 * (3 - B2[i.ID, j.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="rcon2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+
+cornerl = {}
+corneru = {}
+for i in Items:
+    for bin in Bins:
+        if bin.b>0:
+            cornerl[i.ID, bin.ID] = model.addConstr(y[i.ID]>=-bin.b/bin.a * x[i.ID] + bin.b - (1-p[i.ID, bin.ID])*(1000000), name="corner_{}_{}".format(i.ID, bin.ID))
+            corneru[i.ID, bin.ID] = model.addConstr(y[i.ID]<=-bin.b/bin.a * x[i.ID] + bin.b + (2-p[i.ID, bin.ID] - gamma[i.ID])*(1000000), name="corner_{}_{}".format(i.ID, bin.ID))
+
 
 left = {}
 left2 = {}
