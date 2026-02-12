@@ -1,6 +1,6 @@
 import gurobipy as gp
 import pickle
-
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
@@ -40,6 +40,9 @@ Items = []
 for i in range(len(I_values)):
         Items.append(Item(i, I_values[i][0], I_values[i][1], I_values[i][2], I_values[i][3], I_values[i][4], I_values[i][5]))
 
+print("Items:")
+for item in Items:
+    print("ID: {}, Length: {}, Height: {}, Rotate: {}, Fragile: {}, Perishable: {}, Radioactive: {}".format(item.ID, item.length, item.height, item.rotate, item.fragile, item.perishable, item.radioactive))
 
 model = gp.Model("Bin Packing Problem")
 
@@ -49,16 +52,17 @@ for b in Bins:
     z[b.ID] = model.addVar(obj= b.cost, vtype=gp.GRB.BINARY, name="z_{}".format(b.ID))
 
 I = {}
-for i in Items:
-    for j in Items:
-        if i.ID != j.ID:
-            I[i.ID, j.ID] = model.addVar(vtype=gp.GRB.BINARY, name="I_{}_{}".format(i.ID, j.ID))
-
+for bn in Bins:
+    for i in Items:
+        for j in Items:
+            if i.ID != j.ID:
+                I[i.ID, j.ID, bn.ID] = model.addVar(vtype=gp.GRB.BINARY, name="I_{}_{}_{}".format(i.ID, j.ID, bn.ID))
 b = {}
-for i in Items:
-    for j in Items:
-        if i.ID != j.ID:
-            b[i.ID, j.ID] = model.addVar(vtype=gp.GRB.BINARY, name="b_{}_{}".format(i.ID, j.ID))
+for bn in Bins:
+    for i in Items:
+        for j in Items:
+            if i.ID != j.ID:
+                b[i.ID, j.ID, bn.ID] = model.addVar(vtype=gp.GRB.BINARY, name="b_{}_{}_{}".format(i.ID, j.ID, bn.ID))
 
 p = {}
 for i in Items:
@@ -71,7 +75,8 @@ gamma = {}
 for i in Items:
     rho[i.ID] = model.addVar(vtype=gp.GRB.BINARY, name="rho_{}".format(i.ID))
     g[i.ID] = model.addVar(vtype=gp.GRB.BINARY, name="g_{}".format(i.ID))
-    gamma[i.ID] = model.addVar(vtype=gp.GRB.BINARY, name="gamma_{}".format(i.ID))
+    for bin in Bins:
+        gamma[i.ID, bin.ID] = model.addVar(vtype=gp.GRB.BINARY, name="gamma_{}_{}".format(i.ID, bin.ID))
 
 radioactive = {}
 for bin in Bins:
@@ -79,11 +84,12 @@ for bin in Bins:
 
 B1 = {}
 B2 = {}
-for i in Items:
-    for j in Items:
-        if i.ID != j.ID:
-            B1[i.ID, j.ID] = model.addVar(vtype=gp.GRB.BINARY, name="B1_{}_{}".format(i.ID, j.ID))
-            B2[i.ID, j.ID] = model.addVar(vtype=gp.GRB.BINARY, name="B2_{}_{}".format(i.ID, j.ID))
+for bin in Bins:
+    for i in Items:
+        for j in Items:
+            if i.ID != j.ID:
+                B1[i.ID, j.ID, bin.ID] = model.addVar(vtype=gp.GRB.BINARY, name="B1_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                B2[i.ID, j.ID, bin.ID] = model.addVar(vtype=gp.GRB.BINARY, name="B2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
 
 x = {}
 y = {}
@@ -98,25 +104,27 @@ overlapping = {}
 for bin in Bins:
     for i in Items:
         for j in Items:
-            if i.ID != j.ID:
-                overlapping[bin.ID, i.ID, j.ID] = model.addConstr(I[i.ID, j.ID] + I[j.ID, i.ID] + b[i.ID, j.ID] + b[j.ID, i.ID] >= p[i.ID, bin.ID] + p[j.ID, bin.ID] - 1, name="overlapping_{}_{}_{}".format(bin.ID, i.ID, j.ID))
+            if i.ID < j.ID:
+                overlapping[bin.ID, i.ID, j.ID] = model.addConstr(I[i.ID, j.ID, bin.ID] + I[j.ID, i.ID, bin.ID] + b[i.ID, j.ID, bin.ID] + b[j.ID, i.ID, bin.ID] >= p[i.ID, bin.ID] + p[j.ID, bin.ID] - 1, name="overlapping_{}_{}_{}".format(bin.ID, i.ID, j.ID))
 
 horizontal1 = {}
 horizontal2 = {}
 
-for i in Items:
-    for j in Items:
-        if i.ID != j.ID:
-            horizontal1[i.ID, j.ID] = model.addConstr(x[j.ID] >= x[i.ID] + i.length * (1 - rho[i.ID]) + i.height * rho[i.ID] - Lmax * (1- I[i.ID, j.ID]), name="horizontal1_{}_{}".format(i.ID, j.ID))
-            horizontal2[i.ID, j.ID] = model.addConstr(x[j.ID] + 0.00001 <= x[i.ID] + i.length * (1 - rho[i.ID]) + i.height * rho[i.ID] + Lmax *  I[i.ID, j.ID], name="horizontal2_{}_{}".format(i.ID, j.ID))
+for bn in Bins:
+    for i in Items:
+        for j in Items:
+            if i.ID != j.ID:
+                horizontal1[i.ID, j.ID, bn.ID] = model.addConstr(x[j.ID] >= x[i.ID] + i.length * (1 - rho[i.ID]) + i.height * rho[i.ID] - Lmax * (3 - p[i.ID, bn.ID] - p[j.ID, bn.ID] - I[i.ID, j.ID, bn.ID]), name="horizontal1_{}_{}_{}".format(i.ID, j.ID, bn.ID))
+                horizontal2[i.ID, j.ID, bn.ID] = model.addConstr(x[j.ID] + 0.00001 <= x[i.ID] + i.length * (1 - rho[i.ID]) + i.height * rho[i.ID] + Lmax * (2 - p[i.ID, bn.ID] - p[j.ID, bn.ID] + I[i.ID, j.ID, bn.ID]), name="horizontal2_{}_{}_{}".format(i.ID, j.ID, bn.ID))
 
 vertical1 = {}
 vertical2 = {}
-for i in Items:
-    for j in Items:
-        if i.ID != j.ID:
-            vertical1[i.ID, j.ID] = model.addConstr(y[j.ID] >= y[i.ID] + i.height * (1 - rho[i.ID]) + i.length * rho[i.ID] - Hmax * (1- b[i.ID, j.ID]), name="vertical1_{}_{}".format(i.ID, j.ID))
-            vertical2[i.ID, j.ID] = model.addConstr(y[j.ID] <= y[i.ID] + i.height * (1 - rho[i.ID]) + i.length * rho[i.ID] + Hmax *  b[i.ID, j.ID], name="vertical2_{}_{}".format(i.ID, j.ID))
+for bn in Bins:
+    for i in Items:
+        for j in Items:
+            if i.ID != j.ID:
+                vertical1[i.ID, j.ID, bn.ID] = model.addConstr(y[j.ID] >= y[i.ID] + i.height * (1 - rho[i.ID]) + i.length * rho[i.ID] - Hmax * (3- p[i.ID, bn.ID] - p[j.ID, bn.ID] - b[i.ID, j.ID, bn.ID]), name="vertical1_{}_{}_{}".format(i.ID, j.ID, bn.ID))
+                vertical2[i.ID, j.ID, bn.ID] = model.addConstr(y[j.ID] <= y[i.ID] + i.height * (1 - rho[i.ID]) + i.length * rho[i.ID] + Hmax *  (2 - p[i.ID, bn.ID] - p[j.ID, bn.ID] + b[i.ID, j.ID, bn.ID]), name="vertical2_{}_{}_{}".format(i.ID, j.ID, bn.ID))
 
 xbound = {}
 ybound = {}
@@ -127,11 +135,11 @@ for i in Items:
     assigned[i.ID] = model.addConstr(gp.quicksum(p[i.ID, bin.ID] for bin in Bins) == 1, name="assigned_{}".format(i.ID))
 
 for bin in Bins:
-    model.addConstr(gp.quicksum(p[i.ID, bin.ID] for i in Items) <= 1000 * z[bin.ID], name="bin_usage_{}".format(bin.ID))
+    model.addConstr(gp.quicksum(p[i.ID, bin.ID] for i in Items) <= 24 * z[bin.ID], name="bin_usage_{}".format(bin.ID))
 
 grounding = {}
 for i in Items:
-    grounding[i.ID] = model.addConstr(y[i.ID] <= 1000 * (1-g[i.ID]), name="grounding_{}".format(i.ID))
+    grounding[i.ID] = model.addConstr(y[i.ID] <= 156 * (1-g[i.ID]), name="grounding_{}".format(i.ID))
 
 bcon = {}
 rcon = {}
@@ -139,8 +147,8 @@ for i in Items:
     for j in Items:
         for bin in Bins:
             if i.ID != j.ID:
-                bcon[i.ID, j.ID, bin.ID] = model.addConstr(y[i.ID] - (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 1000 * (3 - B1[i.ID, j.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="bcon_{}_{}_{}".format(i.ID, j.ID, bin.ID))
-                rcon[i.ID, j.ID, bin.ID] = model.addConstr(y[i.ID] - (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 1000 * (3 - B2[i.ID, j.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="rcon_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                bcon[i.ID, j.ID, bin.ID] = model.addConstr(y[i.ID] - (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 156 * (3 - B1[i.ID, j.ID, bin.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="bcon_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                rcon[i.ID, j.ID, bin.ID] = model.addConstr(y[i.ID] - (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 156 * (3 - B2[i.ID, j.ID, bin.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="rcon_{}_{}_{}".format(i.ID, j.ID, bin.ID))
 
 bcon2 = {}
 rcon2 = {}
@@ -148,16 +156,19 @@ for i in Items:
     for j in Items:
         for bin in Bins:
             if i.ID != j.ID:
-                bcon2[i.ID, j.ID, bin.ID] = model.addConstr(-y[i.ID] + (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 1000 * (3 - B1[i.ID, j.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="bcon2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
-                rcon2[i.ID, j.ID, bin.ID] = model.addConstr(-y[i.ID] + (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 1000 * (3 - B2[i.ID, j.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="rcon2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                bcon2[i.ID, j.ID, bin.ID] = model.addConstr(-y[i.ID] + (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 156 * (3 - B1[i.ID, j.ID, bin.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="bcon2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                rcon2[i.ID, j.ID, bin.ID] = model.addConstr(-y[i.ID] + (y[j.ID] + j.height * (1 - rho[j.ID]) + j.length * rho[j.ID]) <= 156 * (3 - B2[i.ID, j.ID, bin.ID] - p[i.ID, bin.ID] - p[j.ID, bin.ID]), name="rcon2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
 
 cornerl = {}
 corneru = {}
 for i in Items:
     for bin in Bins:
         if bin.b>0:
-            cornerl[i.ID, bin.ID] = model.addConstr(y[i.ID]>=-bin.b/bin.a * x[i.ID] + bin.b - (1-p[i.ID, bin.ID])*(1000000), name="corner_{}_{}".format(i.ID, bin.ID))
-            corneru[i.ID, bin.ID] = model.addConstr(y[i.ID]<=-bin.b/bin.a * x[i.ID] + bin.b + (2-p[i.ID, bin.ID] - gamma[i.ID])*(1000000), name="corner_{}_{}".format(i.ID, bin.ID))
+            cornerl[i.ID, bin.ID] = model.addConstr(y[i.ID]>=-bin.b/bin.a * x[i.ID] + bin.b - (1-p[i.ID, bin.ID])*(156), name="corner_{}_{}".format(i.ID, bin.ID))
+            corneru[i.ID, bin.ID] = model.addConstr(y[i.ID]<=-bin.b/bin.a * x[i.ID] + bin.b + (2-p[i.ID, bin.ID] - gamma[i.ID, bin.ID])*(156), name="corner_{}_{}".format(i.ID, bin.ID))
+        else:
+            model.addConstr(gamma[i.ID, bin.ID] == 0, name="gamma_{}_{}".format(i.ID, bin.ID))
+        model.addConstr(gamma[i.ID, bin.ID] <= p[i.ID, bin.ID], name="gamma_p_{}_{}".format(i.ID, bin.ID))
 
 
 left = {}
@@ -166,8 +177,8 @@ for i in Items:
     for j in Items:
         for bin in Bins:
             if i.ID != j.ID:
-                left[i.ID, j.ID, bin.ID] = model.addConstr(x[j.ID]-x[i.ID] <= 1000000 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B1[i.ID, j.ID]), name="left_{}_{}_{}".format(i.ID, j.ID, bin.ID))
-                left2[i.ID, j.ID, bin.ID] = model.addConstr(-x[j.ID]-j.length*(1-rho[j.ID]) - j.height*rho[j.ID] + x[i.ID] <= 1000000 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B1[i.ID, j.ID]), name="left2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                left[i.ID, j.ID, bin.ID] = model.addConstr(x[j.ID]-x[i.ID] <= 301 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B1[i.ID, j.ID, bin.ID]), name="left_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                left2[i.ID, j.ID, bin.ID] = model.addConstr(-x[j.ID]-j.length*(1-rho[j.ID]) - j.height*rho[j.ID] + x[i.ID] <= 301 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B1[i.ID, j.ID, bin.ID]), name="left2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
 
 right = {}
 right2 = {}
@@ -175,17 +186,17 @@ for i in Items:
     for j in Items:
         for bin in Bins:
             if i.ID != j.ID:
-                right[i.ID, j.ID, bin.ID] = model.addConstr(x[j.ID]-x[i.ID] - i.length*(1-rho[i.ID]) - i.height*rho[i.ID] <= 1000000 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B2[i.ID, j.ID]), name="right_{}_{}_{}".format(i.ID, j.ID, bin.ID))
-                right2[i.ID, j.ID, bin.ID] = model.addConstr(x[i.ID] + i.length*(1-rho[i.ID]) + i.height*rho[i.ID] - x[j.ID] - j.length*(1-rho[j.ID]) - j.height*rho[j.ID] <= 1000000 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B2[i.ID, j.ID]), name="right2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                right[i.ID, j.ID, bin.ID] = model.addConstr(x[j.ID]-x[i.ID] - i.length*(1-rho[i.ID]) - i.height*rho[i.ID] <= 301 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B2[i.ID, j.ID, bin.ID]), name="right_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                right2[i.ID, j.ID, bin.ID] = model.addConstr(x[i.ID] + i.length*(1-rho[i.ID]) + i.height*rho[i.ID] - x[j.ID] - j.length*(1-rho[j.ID]) - j.height*rho[j.ID] <= 301 * (3-p[i.ID, bin.ID] - p[j.ID, bin.ID] - B2[i.ID, j.ID, bin.ID]), name="right2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
 
-stacking = {} #items can only stand on items in the same bin.
-stacking2 = {}
 for bin in Bins:
     for i in Items:
         for j in Items:
             if i.ID != j.ID:
-                stacking[i.ID, j.ID, bin.ID] = model.addConstr(2 * B1[i.ID, j.ID] <= p[j.ID, bin.ID] + p[i.ID, bin.ID], name="stacking_{}_{}_{}".format(i.ID, j.ID, bin.ID))
-                stacking2[i.ID, j.ID, bin.ID] = model.addConstr(2 * B2[i.ID, j.ID] <= p[j.ID, bin.ID] + p[i.ID, bin.ID], name="stacking2_{}_{}_{}".format(i.ID, j.ID, bin.ID))
+                model.addConstr(B1[i.ID, j.ID, bin.ID] <= p[i.ID, bin.ID])
+                model.addConstr(B1[i.ID, j.ID, bin.ID] <= p[j.ID, bin.ID])
+                model.addConstr(B2[i.ID, j.ID, bin.ID] <= p[i.ID, bin.ID])
+                model.addConstr(B2[i.ID, j.ID, bin.ID] <= p[j.ID, bin.ID])
 
 
 
@@ -197,17 +208,20 @@ for i in Items:
 fragile = {}
 for j in Items:
     if j.fragile == 1:
-        fragile[j.ID] = model.addConstr(gp.quicksum(B1[i.ID, j.ID] + B2[i.ID, j.ID] for i in Items if i.ID != j.ID) == 0, name="fragile_{}".format(j.ID))
+        fragile[j.ID] = model.addConstr(gp.quicksum(gp.quicksum(B1[i.ID, j.ID, bin.ID] + B2[i.ID, j.ID, bin.ID] for i in Items if i.ID != j.ID) for bin in Bins) == 0, name="fragile_{}".format(j.ID))
 
 radiation_activation = {}
 radiation_limiter = {}
 for bin in Bins:
-    radiation_activation[bin.ID] = model.addConstr(gp.quicksum(i.radioactive*p[i.ID, bin.ID] for i in Items) <= 1000 * radioactive[bin.ID], name="radiation_activation_{}".format(bin.ID))
-    radiation_limiter[bin.ID] = model.addConstr(gp.quicksum(i.perishable*p[i.ID, bin.ID] for i in Items) <= 1000 * (1-radioactive[bin.ID]), name="radiation_limiter_{}".format(bin.ID))
+    radiation_activation[bin.ID] = model.addConstr(gp.quicksum(i.radioactive*p[i.ID, bin.ID] for i in Items) <= 25 * radioactive[bin.ID], name="radiation_activation_{}".format(bin.ID))
+    radiation_limiter[bin.ID] = model.addConstr(gp.quicksum(i.perishable*p[i.ID, bin.ID] for i in Items) <= 25 * (1-radioactive[bin.ID]), name="radiation_limiter_{}".format(bin.ID))
 
 feasibility = {}
 for i in Items:
-    feasibility[i.ID] = model.addConstr(gamma[i.ID] + gp.quicksum(B1[i.ID,j.ID] + B2[i.ID,j.ID] for j in Items if j.ID != i.ID) + 2 * g[i.ID] >= 2, name="feasibility_{}".format(i.ID))
+    feasibility[i.ID] = model.addConstr(gp.quicksum(gamma[i.ID, bin.ID] for bin in Bins) + gp.quicksum(gp.quicksum(B1[i.ID,j.ID,bin.ID] + B2[i.ID,j.ID,bin.ID] for j in Items if j.ID != i.ID) for bin in Bins) + 2 * g[i.ID] >= 2, name="feasibility_{}".format(i.ID))
+
+# for zz in range(2):
+#     model.addConstr(z[zz] >= z[zz+1], name="bin_selection_{}".format(zz))
 
 
 
@@ -218,20 +232,6 @@ model.write("model.lp")
 model.optimize()
 
 model.write("model.sol")
-print("Optimal value: {}".format(model.objVal))
-print("Optimal solution:")
-for i in Items:
-    for bin in Bins:
-        if p[i.ID, bin.ID].X > 0.5:
-            print("Item {} is assigned to Bin {}".format(i.ID, bin.ID))
-            print("Item {}: x = {}, y = {}, rho = {}".format(i.ID, x[i.ID].X, y[i.ID].X, rho[i.ID].X))
-            for j in Items:
-                if i.ID != j.ID:
-                    if B1[i.ID, j.ID].X > 0.5:
-                        print("Item {} is above Item {}".format(i.ID, j.ID))
-                    if B2[i.ID, j.ID].X > 0.5:
-                        print("Item {} is above Item {}".format(i.ID, j.ID))
-
 
 
 
