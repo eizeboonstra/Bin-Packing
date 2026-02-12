@@ -289,3 +289,38 @@ for bin in Bins:
         print(f"Saved {filename}")
 
 plt.show()
+
+
+
+solution_dir = "solution_pickles"
+os.makedirs(solution_dir, exist_ok=True)
+
+# 1) bins_used: list of bins with z=1
+bins_used = [bn.ID for bn in Bins if z[bn.ID].X > 0.5]
+
+# 2) Items_in_Bin: dict bin -> list of items with p=1
+Items_in_Bin = {}
+for bn_id in bins_used:
+    Items_in_Bin[bn_id] = [it.ID for it in Items if p[it.ID, bn_id].X > 0.5]
+
+# 3) I_info_solution: dict item -> [x, y, w, h] (w/h include rotation)
+I_info_solution = {}
+for it in Items:
+    w = it.length * (1 - rho[it.ID].X) + it.height * rho[it.ID].X
+    h = it.height * (1 - rho[it.ID].X) + it.length * rho[it.ID].X
+    I_info_solution[it.ID] = [float(x[it.ID].X), float(y[it.ID].X), float(w), float(h)]
+
+# Write as three separate pickle files (most common expectation)
+with open(os.path.join(solution_dir, "bins_used.pickle"), "wb") as f:
+    pickle.dump(bins_used, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+with open(os.path.join(solution_dir, "Items_in_Bin.pickle"), "wb") as f:
+    pickle.dump(Items_in_Bin, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+with open(os.path.join(solution_dir, "I_info_solution.pickle"), "wb") as f:
+    pickle.dump(I_info_solution, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+print("Saved pickles to:", os.path.abspath(solution_dir))
+print("bins_used =", bins_used)
+print("Items_in_Bin =", Items_in_Bin)
+print("I_info_solution sample (first 5):", dict(list(I_info_solution.items())[:5]))
