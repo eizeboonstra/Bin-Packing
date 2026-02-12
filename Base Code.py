@@ -229,24 +229,56 @@ model.update()
 model.setParam("LogFile", "log_file")
 model.update()
 model.write("model.lp")
+model.setParam("TimeLimit", 60*60*2)
 model.optimize()
 
 model.write("model.sol")
 
 
 
+def item_color(item_id):
+    # tab20 has 20 distinct colors; modulo repeats if you have >20 items
+    cmap = plt.get_cmap("tab20")
+    return cmap(item_id % cmap.N)
+
 for bin in Bins:
     if z[bin.ID].X > 0.5:
         fig, ax = plt.subplots()
         ax.set_xlim(0, bin.length)
         ax.set_ylim(0, bin.height)
+
+        # ---- draw the cut-out line if present ----
+        if getattr(bin, "a", 0) > 0:
+            # optional: only draw if b is also >0 (typical triangular cut)
+            # if getattr(bin, "b", 0) > 0:
+            ax.plot([bin.a, 0], [0, bin.b], linewidth=2)  # line from (a,0) to (0,b)
+
         for i in Items:
             if p[i.ID, bin.ID].X > 0.5:
-                rect = patches.Rectangle((x[i.ID].X, y[i.ID].X), i.length * (1 - rho[i.ID].X) + i.height * rho[i.ID].X, i.height * (1 - rho[i.ID].X) + i.length * rho[i.ID].X, edgecolor='black', facecolor='blue', alpha=0.5)
+                w = i.length * (1 - rho[i.ID].X) + i.height * rho[i.ID].X
+                h = i.height * (1 - rho[i.ID].X) + i.length * rho[i.ID].X
+
+                rect = patches.Rectangle(
+                    (x[i.ID].X, y[i.ID].X),
+                    w, h,
+                    edgecolor='black',
+                    facecolor=item_color(i.ID),
+                    alpha=0.55
+                )
                 ax.add_patch(rect)
-                plt.text(x[i.ID].X + (i.length * (1 - rho[i.ID].X) + i.height * rho[i.ID].X)/2, y[i.ID].X + (i.height * (1 - rho[i.ID].X) + i.length * rho[i.ID].X)/2, str(i.ID), color='white', ha='center', va='center')
-        plt.title("Bin {}".format(bin.ID))
-        plt.xlabel("Length")
-        plt.ylabel("Height")
-        plt.grid()
+
+                ax.text(
+                    x[i.ID].X + w / 2,
+                    y[i.ID].X + h / 2,
+                    str(i.ID),
+                    color='white',
+                    ha='center',
+                    va='center'
+                )
+
+        ax.set_title(f"Bin {bin.ID}")
+        ax.set_xlabel("Length")
+        ax.set_ylabel("Height")
+        ax.grid(True)
+
 plt.show()
